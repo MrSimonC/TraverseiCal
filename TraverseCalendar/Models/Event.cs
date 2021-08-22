@@ -1,4 +1,6 @@
-﻿namespace TraverseCalendar.Models
+﻿using System;
+
+namespace TraverseCalendar.Models
 {
     public class Event
     {

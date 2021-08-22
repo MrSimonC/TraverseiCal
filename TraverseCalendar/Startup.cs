@@ -8,6 +8,6 @@ namespace DurableTemplate
 {
     public class Startup : FunctionsStartup
     {
-        public override void Configure(IFunctionsHostBuilder builder) => builder.Services.AddHttpClient();//builder.Services.AddSingleton((s) =>//{//    return new MyService();//});//builder.Services.AddSingleton<ILoggerProvider, MyLoggerProvider>();
+        public override void Configure(IFunctionsHostBuilder builder) => builder.Services.AddHttpClient();
     }
 }
