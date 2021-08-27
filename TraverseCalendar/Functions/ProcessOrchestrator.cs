@@ -1,5 +1,4 @@
 using Ical.Net;
-using Ical.Net.CalendarComponents;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Azure.WebJobs.Extensions.Http;
@@ -14,6 +13,7 @@ using System.Threading.Tasks;
 using Todoist.Net;
 using Todoist.Net.Models;
 using TraverseCalendar.Entities;
+using TraverseCalendar.Helpers;
 using TraverseCalendar.Models;
 
 namespace TraverseCalendar.Functions
@@ -41,84 +41,85 @@ namespace TraverseCalendar.Functions
             log.LogInformation("Orchestrator running...");
             OrchestratorInput oi = context.GetInput<OrchestratorInput>();
 
-            // get current events, previously known events, and compare to find what's new
-            List<Event> currentEvents = await context.CallActivityAsync<List<Event>>(nameof(GetCalendar), oi.iCalFeedUrl);
-            IEventsEntity entityProxy = context.CreateEntityProxy<IEventsEntity>(entityInstanceKey);
-            List<Event> knownEvents = await entityProxy.GetEventsAsync();
+            List<Event> currentEvents = await context.CallActivityAsync<List<Event>>(nameof(GetCalendarAsync), oi.iCalFeedUrl);
+            IEventsEntity knownEventsEntityProxy = context.CreateEntityProxy<IEventsEntity>(entityInstanceKey);
+            List<Event> knownEvents = await knownEventsEntityProxy.GetEventsAsync();
+            knownEvents.Remove(knownEvents.Last());
+            knownEvents.Remove(knownEvents.Last());
             var newEvents = currentEvents.Except(knownEvents).ToList();
             log.LogInformation($"Found {newEvents.Count} new events.");
-            
+
             if (!newEvents.Any())
             {
                 log.LogInformation($"Found no new events - so exiting.");
                 return;
             }
 
+            await ProcessAndSaveNewEvents(context, log, oi, knownEventsEntityProxy, newEvents);
+        }
+
+        private async Task ProcessAndSaveNewEvents(
+            IDurableOrchestrationContext context,
+            ILogger log,
+            OrchestratorInput oi,
+            IEventsEntity knownEventsEntityProxy,
+            List<Event> newEvents)
+        {
             // if many new entries, it's likely first run, so update Entity, but don't update Todoist
             if (newEvents.Count > 20)
             {
                 log.LogInformation("Overwriting all existing events");
-                entityProxy.SetEvents(newEvents);
+                knownEventsEntityProxy.SetEvents(newEvents);
             }
             else
             {
-                IEnumerable<Project>? projects = await todoistClient.Projects.GetAsync();
-                ComplexId projectId = projects
-                    .Where(p => string.Equals(oi.TodoistList.ToLowerInvariant(), p.Name.ToLowerInvariant()))
-                    .Select(p => p.Id)
-                    .Single();
-
                 foreach (Event newEvent in newEvents)
                 {
-                    // first implementation: just send a notification.
-                    await prowlMessage.SendAsync(newEvent.Subject);
-
-                    // for later implementation:
-                    //bool approved = await context.WaitForExternalEvent<bool>("Approval");
-                    //if (approved)
-                    //{
-                    //    await todoistClient.Items.AddAsync(new Item(newEvent.Subject, projectId));
-                    //}
-                    entityProxy.AddEvent(newEvent);
+                    await context.CallActivityAsync(nameof(SendProwlMessage), newEvent.Subject);
+                    await context.CallActivityAsync(nameof(AddEventToTodoistList), (oi.TodoistList, newEvent.Subject));
+                    knownEventsEntityProxy.AddEvent(newEvent);
                 }
             }
         }
 
-        [FunctionName(nameof(GetCalendar))]
-        public async Task<List<Event>> GetCalendar(
+        [FunctionName(nameof(GetCalendarAsync))]
+        public async Task<List<Event>> GetCalendarAsync(
             [ActivityTrigger] string url,
             ILogger log)
         {
-            log.LogInformation($"{nameof(GetCalendar)}: getting url {url}");
+            log.LogInformation($"{nameof(GetCalendarAsync)}: getting url {url}");
             byte[]? content = await httpClient.GetByteArrayAsync(url);
             using var stream = new MemoryStream(content);
             var calendar = Calendar.Load(stream);
-            log.LogInformation($"{nameof(GetCalendar)}: returning with {calendar.Events.Count} calendar events");
-            return ConvertICalToEvents(calendar);
+            log.LogInformation($"{nameof(GetCalendarAsync)}: returning with {calendar.Events.Count} calendar events");
+            return ICalHelper.ConvertICalToEvents(calendar);
         }
 
-        private static List<Event> ConvertICalToEvents(Calendar calendar)
+        [FunctionName(nameof(SendProwlMessage))]
+        public async Task SendProwlMessage(
+            [ActivityTrigger] string message,
+            ILogger log)
         {
-            var result = new List<Event>();
-
-            foreach (CalendarEvent calEvent in calendar.Events)
-            {
-                result.Add(new Event()
-                {
-                    DateUTC = calEvent.DtStart.AsUtc,
-                    Subject = calEvent.Summary,
-                    Uid = calEvent.Uid
-                });
-            }
-            return result;
+            log.LogInformation($"About to send message to prowl: {message}");
+            HttpResponseMessage? result = await prowlMessage.SendAsync(message, application: "iCal Todoist", @event: "New Event Found");
+            result.EnsureSuccessStatusCode();
         }
 
-        private async Task<List<Event>> GetCurrentKnownEventsAsync(IDurableOrchestrationContext context)
+        [FunctionName(nameof(AddEventToTodoistList))]
+        public async Task AddEventToTodoistList(
+            [ActivityTrigger] (string projectName, string entry) projEntry,
+            ILogger log)
         {
-            var entity = new EntityId(nameof(EventsEntity), entityInstanceKey);
-            IEventsEntity entityProxy = context.CreateEntityProxy<IEventsEntity>(entity);
+            log.LogInformation($"Getting todoist list id (for list: {projEntry.projectName})");
+            IEnumerable<Project>? projects = await todoistClient.Projects.GetAsync();
+            ComplexId projectId = projects
+                .Where(p => string.Equals(projEntry.projectName, p.Name, StringComparison.InvariantCultureIgnoreCase))
+                .Select(p => p.Id)
+                .Single();
+            log.LogInformation($"Found projectId: {projectId} for project name: {projEntry.projectName}.");
 
-            return await entityProxy.GetEventsAsync();
+            log.LogInformation($"Adding event: {projEntry.entry} to Todoist project with id: {projectId}");
+            await todoistClient.Items.AddAsync(new Item(projEntry.entry, projectId));
         }
 
         [FunctionName(nameof(Http_ProcessStart))]
@@ -127,15 +128,10 @@ namespace TraverseCalendar.Functions
             [DurableClient] IDurableOrchestrationClient starter,
             ILogger log)
         {
-            string iCalFeedEnvVar = "HTTPS_ICAL_FEED";
-            string iCalFeedUrl = Environment.GetEnvironmentVariable(iCalFeedEnvVar) ?? throw new ArgumentNullException(iCalFeedEnvVar);
-            //string todoistApi = Environment.GetEnvironmentVariable("TODOIST_APIKEY") ?? throw new NullReferenceException("Missing TODOIST_APIKEY environment variable");
-            string todoistList = Environment.GetEnvironmentVariable("TODOIST_LIST") ?? throw new NullReferenceException("Missing TODOIST_LIST environment variable");
             var oi = new OrchestratorInput()
             {
-                iCalFeedUrl = iCalFeedUrl,
-                //TodoistAPIKey = todoistApi,
-                TodoistList = todoistList
+                iCalFeedUrl = Environment.GetEnvironmentVariable("HTTPS_ICAL_FEED") ?? throw new ArgumentNullException("HTTPS_ICAL_FEED"),
+                TodoistList = Environment.GetEnvironmentVariable("TODOIST_LIST") ?? throw new ArgumentNullException("TODOIST_LIST")
             };
 
             string instanceId = await starter.StartNewAsync(nameof(ProcessOrchestrator), oi);
