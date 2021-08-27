@@ -29,7 +29,7 @@ namespace TraverseCalendar.Functions
             IProwlMessage prowlMessage)
         {
             httpClient = httpClientFactory.CreateClient();
-            todoistClient = new TodoistClient(Environment.GetEnvironmentVariable("TODOIST_APIKEY") ?? throw new NullReferenceException("Missing TODOIST_APIKEY environment variable"));
+            todoistClient = new TodoistClient(Environment.GetEnvironmentVariable("TODOIST_API_KEY") ?? throw new NullReferenceException("Missing TODOIST_API_KEY environment variable"));
             this.prowlMessage = prowlMessage;
         }
 
