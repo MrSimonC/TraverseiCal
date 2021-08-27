@@ -4,6 +4,7 @@ using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Logging;
+using Prowl;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -22,11 +23,14 @@ namespace TraverseCalendar.Functions
         private readonly HttpClient httpClient;
         private readonly ITodoistClient todoistClient;
         private const string entityInstanceKey = "calendarEntries";
+        private readonly IProwlMessage prowlMessage;
 
-        public ProcessOrchestrator(IHttpClientFactory httpClientFactory)
+        public ProcessOrchestrator(IHttpClientFactory httpClientFactory,
+            IProwlMessage prowlMessage)
         {
             httpClient = httpClientFactory.CreateClient();
             todoistClient = new TodoistClient(Environment.GetEnvironmentVariable("TODOIST_APIKEY") ?? throw new NullReferenceException("Missing TODOIST_APIKEY environment variable"));
+            this.prowlMessage = prowlMessage;
         }
 
         [FunctionName(nameof(ProcessOrchestrator))]
@@ -43,6 +47,7 @@ namespace TraverseCalendar.Functions
             List<Event> knownEvents = await entityProxy.GetEventsAsync();
             var newEvents = currentEvents.Except(knownEvents).ToList();
             log.LogInformation($"Found {newEvents.Count} new events.");
+            
             if (!newEvents.Any())
             {
                 log.LogInformation($"Found no new events - so exiting.");
@@ -63,17 +68,17 @@ namespace TraverseCalendar.Functions
                     .Select(p => p.Id)
                     .Single();
 
-                foreach (Event? newEvent in newEvents)
+                foreach (Event newEvent in newEvents)
                 {
-                    // ask human if this is worth tracking
+                    // first implementation: just send a notification.
+                    await prowlMessage.SendAsync(newEvent.Subject);
 
-                    // <send notification with newEvent.Subject>
-
-                    bool approved = await context.WaitForExternalEvent<bool>("Approval");
-                    if (approved)
-                    {
-                        await todoistClient.Items.AddAsync(new Item(newEvent.Subject, projectId));
-                    }
+                    // for later implementation:
+                    //bool approved = await context.WaitForExternalEvent<bool>("Approval");
+                    //if (approved)
+                    //{
+                    //    await todoistClient.Items.AddAsync(new Item(newEvent.Subject, projectId));
+                    //}
                     entityProxy.AddEvent(newEvent);
                 }
             }
