@@ -138,7 +138,7 @@ namespace TraverseCalendar.Functions
                 TodoistList = todoistList
             };
 
-            string instanceId = await starter.StartNewAsync(nameof(ProcessOrchestrator), "FindNewCalendarEvents", oi);
+            string instanceId = await starter.StartNewAsync(nameof(ProcessOrchestrator), oi);
             log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
 
             return starter.CreateCheckStatusResponse(req, instanceId);
