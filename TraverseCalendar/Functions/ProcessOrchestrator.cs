@@ -140,7 +140,7 @@ namespace TraverseCalendar.Functions
 
         [FunctionName(nameof(Timer_ProcessStartAsync))]
         public static async Task Timer_ProcessStartAsync(
-            [TimerTrigger("0 0 */4 * * *")] TimerInfo myTimer,
+            [TimerTrigger("0 0 8-22/4 * * *")] TimerInfo myTimer, // every 4 hours between 8am-10pm
             [DurableClient] IDurableOrchestrationClient starter,
             ILogger log)
         {
