@@ -45,7 +45,7 @@ namespace TraverseCalendar.Functions
             IEventsEntity knownEventsEntityProxy = context.CreateEntityProxy<IEventsEntity>(entityInstanceKey);
             List<Event> knownEvents = await knownEventsEntityProxy.GetEventsAsync();
             var newEvents = currentEvents.Except(knownEvents).ToList();
-            log.LogInformation($"Found {newEvents.Count} new events.");
+            log.LogInformation($"Found events current/known/new: {currentEvents.Count}/{knownEvents.Count}/{newEvents.Count}");
 
             if (!newEvents.Any())
             {
@@ -74,7 +74,7 @@ namespace TraverseCalendar.Functions
                 foreach (Event newEvent in newEvents)
                 {
                     await context.CallActivityAsync(nameof(SendProwlMessage), newEvent.Subject);
-                    await context.CallActivityAsync(nameof(AddEventToTodoistList), (oi.TodoistList, newEvent.Subject));
+                    await context.CallActivityAsync(nameof(AddEventToTodoistList), (oi.TodoistList, newEvent));
                     knownEventsEntityProxy.AddEvent(newEvent);
                 }
             }
@@ -105,19 +105,23 @@ namespace TraverseCalendar.Functions
 
         [FunctionName(nameof(AddEventToTodoistList))]
         public async Task AddEventToTodoistList(
-            [ActivityTrigger] (string projectName, string entry) projEntry,
+            [ActivityTrigger] (string projectName, Event evnt) projEvnt,
             ILogger log)
         {
-            log.LogInformation($"Getting todoist list id (for list: {projEntry.projectName})");
+            log.LogInformation($"Getting todoist list id (for list: {projEvnt.projectName})");
             IEnumerable<Project>? projects = await todoistClient.Projects.GetAsync();
             ComplexId projectId = projects
-                .Where(p => string.Equals(projEntry.projectName, p.Name, StringComparison.InvariantCultureIgnoreCase))
+                .Where(p => string.Equals(projEvnt.projectName, p.Name, StringComparison.InvariantCultureIgnoreCase))
                 .Select(p => p.Id)
                 .Single();
-            log.LogInformation($"Found projectId: {projectId} for project name: {projEntry.projectName}.");
+            log.LogInformation($"Found projectId: {projectId} for project name: {projEvnt.projectName}.");
 
-            log.LogInformation($"Adding event: {projEntry.entry} to Todoist project with id: {projectId}");
-            await todoistClient.Items.AddAsync(new Item(projEntry.entry, projectId));
+            log.LogInformation($"Adding event: {projEvnt.evnt.Subject} to Todoist project with id: {projectId}");
+            var item = new Item(projEvnt.evnt.Subject, projectId)
+            {
+                DueDate = new DueDate(projEvnt.evnt.DateUTC, true)
+            };
+            await todoistClient.Items.AddAsync(item);
         }
 
         [FunctionName(nameof(Http_ProcessStart))]
