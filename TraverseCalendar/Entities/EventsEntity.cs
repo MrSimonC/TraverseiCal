@@ -16,6 +16,7 @@ namespace TraverseCalendar.Entities
         public void SetEvents(List<Event> events) => Events = events;
         public void AddEvent(Event evnt) => Events.Add(evnt);
         public void RemoveEvent(Event evnt) => Events.Remove(evnt);
+        public void DeleteEntity() => Entity.Current.DeleteState();
 
         [FunctionName(nameof(EventsEntity))]
         public static Task Run([EntityTrigger] IDurableEntityContext ctx)

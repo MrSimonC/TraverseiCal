@@ -10,5 +10,6 @@ namespace TraverseCalendar.Entities
         void SetEvents(List<Event> events);
         void AddEvent(Event evnt);
         void RemoveEvent(Event evnt);
+        void DeleteEntity();
     }
 }
