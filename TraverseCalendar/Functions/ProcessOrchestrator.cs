@@ -41,11 +41,9 @@ namespace TraverseCalendar.Functions
             log.LogInformation("Orchestrator running...");
             OrchestratorInput oi = context.GetInput<OrchestratorInput>();
 
-            List<Event> currentEvents = await context.CallActivityAsync<List<Event>>(nameof(GetCalendarAsync), oi.iCalFeedUrl);
+            List<Event> currentEvents = await context.CallActivityAsync<List<Event>>(nameof(GetCalendarAsync), oi.ICalFeedUrl);
             IEventsEntity knownEventsEntityProxy = context.CreateEntityProxy<IEventsEntity>(entityInstanceKey);
             List<Event> knownEvents = await knownEventsEntityProxy.GetEventsAsync();
-            knownEvents.Remove(knownEvents.Last());
-            knownEvents.Remove(knownEvents.Last());
             var newEvents = currentEvents.Except(knownEvents).ToList();
             log.LogInformation($"Found {newEvents.Count} new events.");
 
@@ -124,20 +122,43 @@ namespace TraverseCalendar.Functions
 
         [FunctionName(nameof(Http_ProcessStart))]
         public async Task<HttpResponseMessage> Http_ProcessStart(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
+            [HttpTrigger(AuthorizationLevel.Function, "get", "post")] HttpRequestMessage req,
             [DurableClient] IDurableOrchestrationClient starter,
             ILogger log)
         {
-            var oi = new OrchestratorInput()
-            {
-                iCalFeedUrl = Environment.GetEnvironmentVariable("HTTPS_ICAL_FEED") ?? throw new ArgumentNullException("HTTPS_ICAL_FEED"),
-                TodoistList = Environment.GetEnvironmentVariable("TODOIST_LIST") ?? throw new ArgumentNullException("TODOIST_LIST")
-            };
+            OrchestratorInput oi = GetEnvironmentVars();
 
             string instanceId = await starter.StartNewAsync(nameof(ProcessOrchestrator), oi);
             log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
 
             return starter.CreateCheckStatusResponse(req, instanceId);
+        }
+
+        [FunctionName(nameof(Timer_ProcessStartAsync))]
+        public static async Task Timer_ProcessStartAsync(
+            [TimerTrigger("0 0 */4 * * *")] TimerInfo myTimer,
+            [DurableClient] IDurableOrchestrationClient starter,
+            ILogger log)
+        {
+            if (myTimer.IsPastDue)
+            {
+                log.LogInformation("Was triggered after past due. Exit.");
+                return;
+            }
+            log.LogInformation($"{nameof(Timer_ProcessStartAsync)} trigger function executed at: {DateTime.Now}");
+            OrchestratorInput oi = GetEnvironmentVars();
+
+            string instanceId = await starter.StartNewAsync(nameof(ProcessOrchestrator), oi);
+            log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+        }
+
+        private static OrchestratorInput GetEnvironmentVars()
+        {
+            return new OrchestratorInput()
+            {
+                ICalFeedUrl = Environment.GetEnvironmentVariable("HTTPS_ICAL_FEED") ?? throw new ArgumentNullException("HTTPS_ICAL_FEED"),
+                TodoistList = Environment.GetEnvironmentVariable("TODOIST_LIST") ?? throw new ArgumentNullException("TODOIST_LIST")
+            };
         }
     }
 }
