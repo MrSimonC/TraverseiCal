@@ -1,4 +1,5 @@
 ﻿using Prowl.Enums;
+using Prowl.Models;
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
@@ -22,7 +23,7 @@ namespace Prowl
             Priority priority = Priority.Normal,
             string url = "",
             string application = "Prowl Message",
-            string @event = "Prowl Event")
+            string evnt = "Prowl Event")
         {
             string prowlAddUrl = "https://api.prowlapp.com/publicapi/add";
 
@@ -32,13 +33,23 @@ namespace Prowl
                     { "priority", priority.ToString() },
                     { "url", url },
                     { "application", application },
-                    { "event", @event },
+                    { "event", evnt },
                     { "description", description },
                 };
 
             var content = new FormUrlEncodedContent(values);
             HttpResponseMessage response = await HttpClient.PostAsync(prowlAddUrl, content);
             return response;
+        }
+
+        public async Task<HttpResponseMessage> SendAsync(ProwlMessageContents prowlMessageContents)
+        {
+            return await SendAsync(
+                prowlMessageContents.Description,
+                prowlMessageContents.Priority,
+                prowlMessageContents.Url,
+                prowlMessageContents.Application,
+                prowlMessageContents.Event);
         }
     }
 }

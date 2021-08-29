@@ -4,6 +4,7 @@ using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Prowl;
+using Prowl.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -24,6 +25,10 @@ namespace TraverseCalendar.Functions
         private readonly ITodoistClient todoistClient;
         private const string entityInstanceKey = "calendarEntries";
         private readonly IProwlMessage prowlMessage;
+        /// <summary>
+        /// Url of Azure Client Function *with no trailing slash*, which will raise the event to the Orchestration
+        /// </summary>
+        private readonly string RaiseApprovalEventUrl = Environment.GetEnvironmentVariable("RAISE_APPROVAL_EVENT_URL") ?? throw new ArgumentNullException(nameof(RaiseApprovalEventUrl));
 
         public ProcessOrchestrator(IHttpClientFactory httpClientFactory,
             IProwlMessage prowlMessage)
@@ -63,7 +68,7 @@ namespace TraverseCalendar.Functions
             IEventsEntity knownEventsEntityProxy,
             List<Event> newEvents)
         {
-            // if many new entries, it's likely first run, so update Entity, but don't update Todoist
+            // if many new entries, it's likely first run, so overwrite Entity, but don't update Todoist
             if (newEvents.Count > 20)
             {
                 log.LogInformation("Overwriting all existing events");
@@ -73,8 +78,25 @@ namespace TraverseCalendar.Functions
             {
                 foreach (Event newEvent in newEvents)
                 {
-                    await context.CallActivityAsync(nameof(SendProwlMessage), newEvent.Subject);
-                    await context.CallActivityAsync(nameof(AddEventToTodoistList), (oi.TodoistList, newEvent));
+                    if (newEvent.DateUTC <= context.CurrentUtcDateTime)
+                    {
+                        log.LogInformation($"Event is in the past for subject: {newEvent.Subject} with date: {newEvent.DateUTC}. Skip.");
+                        continue;
+                    }
+
+                    string url = $"{RaiseApprovalEventUrl}?approvestate=true&instanceid={context.InstanceId}";
+                    var prowlMsg = new ProwlMessageContents() { Description = newEvent.Subject, Application = "iCal Todoist", Event = "Approve", Url = url };
+                    await context.CallActivityAsync(nameof(SendProwlMessage), prowlMsg);
+
+                    url = $"{RaiseApprovalEventUrl}?approvestate=false&instanceid={context.InstanceId}";
+                    prowlMsg = new ProwlMessageContents() { Description = newEvent.Subject, Application = "iCal Todoist", Event = "Ignore", Url = url };
+                    await context.CallActivityAsync(nameof(SendProwlMessage), prowlMsg);
+
+                    bool approved = await context.WaitForExternalEvent<bool>(EventNames.ApprovalEventName);
+                    if (approved)
+                    {
+                        await context.CallActivityAsync(nameof(AddEventToTodoistList), (oi.TodoistList, newEvent));
+                    }
                     knownEventsEntityProxy.AddEvent(newEvent);
                 }
             }
@@ -95,11 +117,11 @@ namespace TraverseCalendar.Functions
 
         [FunctionName(nameof(SendProwlMessage))]
         public async Task SendProwlMessage(
-            [ActivityTrigger] string message,
+            [ActivityTrigger] ProwlMessageContents prowlMessageContents,
             ILogger log)
         {
-            log.LogInformation($"About to send message to prowl: {message}");
-            HttpResponseMessage? result = await prowlMessage.SendAsync(message, application: "iCal Todoist", @event: "New Event Found");
+            log.LogInformation($"About to send message to prowl: {prowlMessageContents.Description} ({prowlMessageContents.Event})");
+            HttpResponseMessage? result = await prowlMessage.SendAsync(prowlMessageContents);
             result.EnsureSuccessStatusCode();
         }
 
