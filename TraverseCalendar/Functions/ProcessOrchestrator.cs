@@ -73,8 +73,27 @@ namespace TraverseCalendar.Functions
             {
                 foreach (Event newEvent in newEvents)
                 {
-                    await context.CallActivityAsync(nameof(SendProwlMessage), newEvent.Subject);
-                    await context.CallActivityAsync(nameof(AddEventToTodoistList), (oi.TodoistList, newEvent));
+                    if (newEvent.DateUTC <= context.CurrentUtcDateTime)
+                    {
+                        log.LogInformation($"Event is in the past for subject: {newEvent.Subject} with date: {newEvent.DateUTC}. Skip.");
+                        continue;
+                    }
+
+                    string urlApprove = $"http://local/approvestate=true&instanceid={context.InstanceId}";
+                    string urlDrop = $"http://local/approvestate=false&instanceid={context.InstanceId}";
+
+                    await context.CallActivityAsync(nameof(SendProwlMessage), (urlApprove, newEvent));
+                    await context.CallActivityAsync(nameof(SendProwlMessage), (urlDrop, newEvent));
+                    
+                    bool approved = await context.WaitForExternalEvent<bool>(EventNames.ApprovalEventName);
+                    if (approved)
+                    {
+                        await context.CallActivityAsync(nameof(AddEventToTodoistList), (oi.TodoistList, newEvent));
+                    }
+                    else
+                    {
+
+                    }
                     knownEventsEntityProxy.AddEvent(newEvent);
                 }
             }
@@ -95,11 +114,11 @@ namespace TraverseCalendar.Functions
 
         [FunctionName(nameof(SendProwlMessage))]
         public async Task SendProwlMessage(
-            [ActivityTrigger] string message,
+            [ActivityTrigger] Event evnt,
             ILogger log)
         {
-            log.LogInformation($"About to send message to prowl: {message}");
-            HttpResponseMessage? result = await prowlMessage.SendAsync(message, application: "iCal Todoist", @event: "New Event Found");
+            log.LogInformation($"About to send message to prowl: {evnt.Subject}");
+            HttpResponseMessage? result = await prowlMessage.SendAsync(evnt.Subject, application: "iCal Todoist", @event: "New Event Found");
             result.EnsureSuccessStatusCode();
         }
 
