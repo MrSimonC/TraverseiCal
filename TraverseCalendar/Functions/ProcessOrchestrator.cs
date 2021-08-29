@@ -84,11 +84,11 @@ namespace TraverseCalendar.Functions
                         continue;
                     }
 
-                    string url = $"{RaiseApprovalEventUrl}?approvestate=true&instanceid={context.InstanceId}";
+                    string url = $"{RaiseApprovalEventUrl}&approvestate=true&instanceid={context.InstanceId}";
                     var prowlMsg = new ProwlMessageContents() { Description = newEvent.Subject, Application = "iCal Todoist", Event = "Approve", Url = url };
                     await context.CallActivityAsync(nameof(SendProwlMessage), prowlMsg);
 
-                    url = $"{RaiseApprovalEventUrl}?approvestate=false&instanceid={context.InstanceId}";
+                    url = $"{RaiseApprovalEventUrl}&approvestate=false&instanceid={context.InstanceId}";
                     prowlMsg = new ProwlMessageContents() { Description = newEvent.Subject, Application = "iCal Todoist", Event = "Ignore", Url = url };
                     await context.CallActivityAsync(nameof(SendProwlMessage), prowlMsg);
 
