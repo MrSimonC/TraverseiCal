@@ -81,6 +81,7 @@ namespace TraverseCalendar.Functions
                     if (newEvent.DateUTC <= context.CurrentUtcDateTime)
                     {
                         log.LogInformation($"Event is in the past for subject: {newEvent.Subject} with date: {newEvent.DateUTC}. Skip.");
+                        knownEventsEntityProxy.AddEvent(newEvent);
                         continue;
                     }
 
