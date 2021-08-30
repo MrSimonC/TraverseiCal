@@ -87,7 +87,7 @@ namespace TraverseCalendar.Functions
                     var useAppleShortcuts = bool.Parse(Environment.GetEnvironmentVariable("USE_APPLE_SHORTCUTS") ?? "false");
                     if (useAppleShortcuts)
                     {
-                        string url = $"shortcuts://run-shortcut?name=Raise%20Event&input=text&text={context.InstanceId}";
+                        string url = $"shortcuts://run-shortcut?name=Raise Event&input=text&text={context.InstanceId}";
                         var prowlMsg = new ProwlMessageContents() { Description = newEvent.Subject, Application = "iCal Todoist", Event = "New Event", Url = url };
                         await context.CallActivityAsync(nameof(SendProwlMessage), prowlMsg);
                     }
