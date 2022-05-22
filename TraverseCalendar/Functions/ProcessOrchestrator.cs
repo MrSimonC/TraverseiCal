@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Todoist.Net;
 using Todoist.Net.Models;
@@ -29,6 +30,7 @@ namespace TraverseCalendar.Functions
         /// Url of Azure Client Function *with no trailing slash*, which will raise the event to the Orchestration
         /// </summary>
         private readonly string RaiseApprovalEventUrl = Environment.GetEnvironmentVariable("RAISE_APPROVAL_EVENT_URL") ?? throw new ArgumentNullException(nameof(RaiseApprovalEventUrl));
+        private readonly string RegExToReplace = Environment.GetEnvironmentVariable("REGEX_TO_REPLACE") ?? throw new ArgumentNullException(nameof(RegExToReplace));
 
         public ProcessOrchestrator(IHttpClientFactory httpClientFactory,
             IProwlMessage prowlMessage)
@@ -119,9 +121,9 @@ namespace TraverseCalendar.Functions
             ILogger log)
         {
             log.LogInformation($"{nameof(GetCalendarAsync)}: getting url {url}");
-            byte[]? content = await httpClient.GetByteArrayAsync(url);
-            using var stream = new MemoryStream(content);
-            var calendar = Calendar.Load(stream);
+            string iCalFile = await httpClient.GetStringAsync(url);
+            string iCalFileClean = Regex.Replace(iCalFile, RegExToReplace, string.Empty);
+            var calendar = Calendar.Load(iCalFileClean);
             log.LogInformation($"{nameof(GetCalendarAsync)}: returning with {calendar.Events.Count} calendar events");
             return ICalHelper.ConvertICalToEvents(calendar);
         }
