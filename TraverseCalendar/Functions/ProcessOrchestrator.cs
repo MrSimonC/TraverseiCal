@@ -71,7 +71,7 @@ namespace TraverseCalendar.Functions
             List<Event> newEvents)
         {
             // if many new entries, it's likely first run, so overwrite Entity, but don't update Todoist
-            if (newEvents.Count > 20)
+            if (newEvents.Count > 100)
             {
                 log.LogInformation("Overwriting all existing events");
                 knownEventsEntityProxy.SetEvents(newEvents);
