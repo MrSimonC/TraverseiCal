@@ -123,13 +123,8 @@ namespace TraverseCalendar.Functions
             log.LogInformation($"{nameof(GetCalendarAsync)}: getting url {url}");
             string iCalFile = await httpClient.GetStringAsync(url);
             log.LogInformation($"{nameof(GetCalendarAsync)}: replacing using regex {RegExToReplace}");
-
-            log.LogInformation($"{nameof(GetCalendarAsync)}: iCalFile before: {iCalFile}");
-
             string iCalFileClean = Regex.Replace(iCalFile, RegExToReplace, string.Empty);
-
-            log.LogInformation($"{nameof(GetCalendarAsync)}: iCalFile after: {iCalFileClean}");
-
+            iCalFileClean = Regex.Replace(iCalFileClean, @"(?<!\r)\\+n" ,@"\r\n");
             var calendar = Calendar.Load(iCalFileClean);
             log.LogInformation($"{nameof(GetCalendarAsync)}: returning with {calendar.Events.Count} calendar events");
             return ICalHelper.ConvertICalToEvents(calendar);
