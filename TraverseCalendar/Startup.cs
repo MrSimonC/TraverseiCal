@@ -5,14 +5,13 @@ using Prowl;
 
 [assembly: FunctionsStartup(typeof(Startup))]
 
-namespace DurableTemplate
+namespace DurableTemplate;
+
+public class Startup : FunctionsStartup
 {
-    public class Startup : FunctionsStartup
+    public override void Configure(IFunctionsHostBuilder builder)
     {
-        public override void Configure(IFunctionsHostBuilder builder)
-        {
-            builder.Services.AddHttpClient();
-            builder.Services.AddSingleton<IProwlMessage, ProwlMessage>();
-        }
+        builder.Services.AddHttpClient();
+        builder.Services.AddSingleton<IProwlMessage, ProwlMessage>();
     }
 }

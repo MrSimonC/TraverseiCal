@@ -1,7 +1,6 @@
-﻿namespace TraverseCalendar.Functions
+﻿namespace TraverseCalendar.Functions;
+
+public static class EventNames
 {
-    public static class EventNames
-    {
-        public const string ApprovalEventName = "ApprovalEvent";
-    }
+    public const string ApprovalEventName = "ApprovalEvent";
 }
