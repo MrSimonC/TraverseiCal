@@ -15,15 +15,15 @@ public class EventExclusion
     [FunctionName("AddEventExclusion")]
     [return: Table(tableName)]
     public static ExcludeEventTableEntity TableOutput(
-        [HttpTrigger(AuthorizationLevel.Function, "post", Route = null)] string eventName,
+        [HttpTrigger(AuthorizationLevel.Function, "post", Route = null)] Event @event,
         ILogger log)
     {
-        log.LogInformation($"Adding excluded event: {eventName}");
+        log.LogInformation($"Adding excluded event: {@event.Subject}");
         return new ExcludeEventTableEntity
         {
             PartitionKey = partitionKey,
             RowKey = Guid.NewGuid().ToString(),
-            Subject = eventName
+            Subject = @event.Subject
         };
     }
 
