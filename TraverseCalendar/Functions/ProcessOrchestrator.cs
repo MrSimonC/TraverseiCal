@@ -1,3 +1,5 @@
+using Azure;
+using Azure.Data.Tables;
 using Ical.Net;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.DurableTask;
@@ -11,6 +13,7 @@ using Todoist.Net.Models;
 using TraverseCalendar.Entities;
 using TraverseCalendar.Helpers;
 using TraverseCalendar.Models;
+using static TraverseCalendar.Constants;
 
 namespace TraverseCalendar.Functions;
 
@@ -46,7 +49,9 @@ public partial class ProcessOrchestrator
         List<Event> currentEvents = await context.CallActivityAsync<List<Event>>(nameof(GetCalendarAsync), oi.ICalFeedUrl);
         IEventsEntity knownEventsEntityProxy = context.CreateEntityProxy<IEventsEntity>(entityInstanceKey);
         List<Event> knownEvents = await knownEventsEntityProxy.GetEventsAsync();
+        List<string> excludedEvents = await context.CallActivityAsync<List<string>>(nameof(GetExcludedEvents), null);
         var newEvents = currentEvents.Except(knownEvents).ToList();
+        newEvents = newEvents.Where(e => !excludedEvents.Contains(e.Subject.Trim(), StringComparer.CurrentCultureIgnoreCase)).ToList();
         log.LogInformation($"Found events current/known/new: {currentEvents.Count}/{knownEvents.Count}/{newEvents.Count}");
 
         if (!newEvents.Any())
@@ -125,6 +130,19 @@ public partial class ProcessOrchestrator
         var calendar = Calendar.Load(iCalFileClean);
         log.LogInformation($"{nameof(GetCalendarAsync)}: returning with {calendar.Events.Count} calendar events");
         return ICalHelper.ConvertICalToEvents(calendar);
+    }
+
+    [FunctionName(nameof(GetExcludedEvents))]
+    public async Task<List<string>> GetExcludedEvents(
+        [ActivityTrigger] IDurableActivityContext conext,
+        [Table(tableName, partitionKey)] TableClient tableClient,
+        ILogger log)
+    {
+        log.LogInformation($"{nameof(GetExcludedEvents)}: getting events");
+        AsyncPageable<ExcludeEventTableEntity> queryResults = tableClient.QueryAsync<ExcludeEventTableEntity>(filter: $"PartitionKey eq '{partitionKey}'");
+        List<string> results = await queryResults.Select(e => e.Subject).ToListAsync();
+        log.LogInformation($"{nameof(GetExcludedEvents)}: returning {results.Count} events");
+        return results;
     }
 
     [FunctionName(nameof(SendProwlMessage))]
