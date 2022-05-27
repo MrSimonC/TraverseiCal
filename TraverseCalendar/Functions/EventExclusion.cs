@@ -23,7 +23,7 @@ public class EventExclusion
         {
             PartitionKey = partitionKey,
             RowKey = Guid.NewGuid().ToString(),
-            Subject = @event.Subject
+            Subject = @event.Subject.Trim()
         };
     }
 
