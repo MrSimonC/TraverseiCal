@@ -51,7 +51,7 @@ public partial class ProcessOrchestrator
         List<Event> knownEvents = await knownEventsEntityProxy.GetEventsAsync();
         List<string> excludedEvents = await context.CallActivityAsync<List<string>>(nameof(GetExcludedEvents), null);
         var newEvents = currentEvents.Except(knownEvents).ToList();
-        newEvents = newEvents.Where(e => !excludedEvents.Contains(e.Subject.Trim())).ToList();
+        newEvents = newEvents.Where(e => !excludedEvents.Contains(e.Subject.Trim(), StringComparer.CurrentCultureIgnoreCase)).ToList();
         log.LogInformation($"Found events current/known/new: {currentEvents.Count}/{knownEvents.Count}/{newEvents.Count}");
 
         if (!newEvents.Any())
