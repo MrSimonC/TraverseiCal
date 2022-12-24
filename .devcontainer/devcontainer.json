@@ -1,0 +1,7 @@
+{
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "features": {
+    "ghcr.io/devcontainers/features/azure-cli:1": {}
+  },
+    "postAttachCommand": "az login && cd TraverseCalendar && func azure functionapp fetch-app-settings TraverseCalendar && func settings decrypt"
+}
