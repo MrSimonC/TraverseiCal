@@ -7,12 +7,14 @@ using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Prowl;
 using Prowl.Models;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.RegularExpressions;
-using Todoist.Net;
-using Todoist.Net.Models;
 using TraverseCalendar.Entities;
 using TraverseCalendar.Helpers;
 using TraverseCalendar.Models;
+using TraverseCalendar.Policies;
 using static TraverseCalendar.Constants;
 
 namespace TraverseCalendar.Functions;
@@ -20,7 +22,9 @@ namespace TraverseCalendar.Functions;
 public partial class ProcessOrchestrator
 {
     private readonly HttpClient httpClient;
-    private readonly ITodoistClient todoistClient;
+    private readonly HttpClient httpTodoistClient;
+    const string todoistApiBaseUrl = "https://api.todoist.com/rest/v2/";
+    private readonly JsonSerializerOptions todoistJsonOpts = new JsonSerializerOptions() { PropertyNameCaseInsensitive = true, PropertyNamingPolicy = new SnakeCasePropertyNamingPolicy()};
     private const string entityInstanceKey = "calendarEntries";
     private readonly IProwlMessage prowlMessage;
     
@@ -34,7 +38,9 @@ public partial class ProcessOrchestrator
         IProwlMessage prowlMessage)
     {
         httpClient = httpClientFactory.CreateClient();
-        todoistClient = new TodoistClient(Environment.GetEnvironmentVariable("TODOIST_API_KEY") ?? throw new NullReferenceException("Missing TODOIST_API_KEY environment variable"));
+        var todoistAPIKey = Environment.GetEnvironmentVariable("TODOIST_APIKEY") ?? throw new NullReferenceException("Missing TODOIST_APIKEY environment variable");
+        this.httpTodoistClient = new HttpClient() { BaseAddress = new Uri(todoistApiBaseUrl) };
+        this.httpTodoistClient.DefaultRequestHeaders.Authorization =  new AuthenticationHeaderValue("Bearer", todoistAPIKey);
         this.prowlMessage = prowlMessage;
     }
 
@@ -161,19 +167,24 @@ public partial class ProcessOrchestrator
         ILogger log)
     {
         log.LogInformation($"Getting todoist list id (for list: {projEvnt.projectName})");
-        IEnumerable<Project>? projects = await todoistClient.Projects.GetAsync();
-        ComplexId projectId = projects
+        IEnumerable<Project>? projects = await httpTodoistClient.GetFromJsonAsync<List<Project>>("projects", todoistJsonOpts);
+        projects ??= Array.Empty<Project>();
+        string projectId = projects
             .Where(p => string.Equals(projEvnt.projectName, p.Name, StringComparison.InvariantCultureIgnoreCase))
             .Select(p => p.Id)
             .Single();
         log.LogInformation($"Found projectId: {projectId} for project name: {projEvnt.projectName}.");
 
         log.LogInformation($"Adding event: {projEvnt.evnt.Subject} to Todoist project with id: {projectId}");
-        var item = new Item(projEvnt.evnt.Subject, projectId)
+        var item = new Item()
         {
-            DueDate = new DueDate(projEvnt.evnt.DateUTC, true)
+            Content = projEvnt.evnt.Subject,
+            ProjectId = projectId,
+            Due = new() {
+                Date = projEvnt.evnt.DateUTC
+            }
         };
-        await todoistClient.Items.AddAsync(item);
+        await httpTodoistClient.PostAsJsonAsync("tasks", item, todoistJsonOpts);
     }
 
     [FunctionName(nameof(Http_ProcessStart))]
