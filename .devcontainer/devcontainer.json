@@ -2,6 +2,5 @@
   "image": "mcr.microsoft.com/devcontainers/universal:2",
   "features": {
     "ghcr.io/devcontainers/features/azure-cli:1": {}
-  },
-    "postCreateCommand": "sudo apt remove -y 'dotnet*' && sudo apt remove -y 'aspnetcore*' && sudo apt update && sudo apt install -y dotnet-sdk-6.0"
+  }
 }
