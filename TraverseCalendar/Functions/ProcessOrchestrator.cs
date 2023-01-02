@@ -176,15 +176,9 @@ public partial class ProcessOrchestrator
         log.LogInformation($"Found projectId: {projectId} for project name: {projEvnt.projectName}.");
 
         log.LogInformation($"Adding event: {projEvnt.evnt.Subject} to Todoist project with id: {projectId}");
-        var item = new Item()
-        {
-            Content = projEvnt.evnt.Subject,
-            ProjectId = projectId,
-            Due = new() {
-                Date = projEvnt.evnt.DateUTC
-            }
-        };
-        await httpTodoistClient.PostAsJsonAsync("tasks", item, todoistJsonOpts);
+        var todoistItem = new TodoistOutGoingItem(projEvnt.evnt.Subject, projectId,projEvnt.evnt.DateUTC);
+        var result = await httpTodoistClient.PostAsJsonAsync("tasks", todoistItem, todoistJsonOpts);
+        result.EnsureSuccessStatusCode();
     }
 
     [FunctionName(nameof(Http_ProcessStart))]
@@ -227,4 +221,6 @@ public partial class ProcessOrchestrator
             TodoistList = Environment.GetEnvironmentVariable("TODOIST_LIST") ?? throw new ArgumentNullException("TODOIST_LIST")
         };
     }
+
+    public record TodoistOutGoingItem(string Content, string ProjectId, DateTime DueDate);
 }
