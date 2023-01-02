@@ -33,6 +33,7 @@ public partial class ProcessOrchestrator
     /// </summary>
     private readonly string RaiseApprovalEventUrl = Environment.GetEnvironmentVariable("RAISE_APPROVAL_EVENT_URL") ?? throw new ArgumentNullException(nameof(RaiseApprovalEventUrl));
     private readonly string RegExToReplace = Environment.GetEnvironmentVariable("REGEX_TO_REPLACE") ?? throw new ArgumentNullException(nameof(RegExToReplace));
+    private readonly bool useAppleShortcuts = bool.Parse(Environment.GetEnvironmentVariable("USE_APPLE_SHORTCUTS") ?? "false");
 
     public ProcessOrchestrator(IHttpClientFactory httpClientFactory,
         IProwlMessage prowlMessage)
@@ -93,7 +94,6 @@ public partial class ProcessOrchestrator
                     continue;
                 }
 
-                var useAppleShortcuts = bool.Parse(Environment.GetEnvironmentVariable("USE_APPLE_SHORTCUTS") ?? "false");
                 if (useAppleShortcuts)
                 {
                     string url = $"shortcuts://run-shortcut?name=Raise Event&input=text&text={context.InstanceId}$$${newEvent.Subject}";
@@ -175,10 +175,21 @@ public partial class ProcessOrchestrator
             .Single();
         log.LogInformation($"Found projectId: {projectId} for project name: {projEvnt.projectName}.");
 
-        log.LogInformation($"Adding event: {projEvnt.evnt.Subject} to Todoist project with id: {projectId}");
-        var todoistItem = new TodoistOutGoingItem(projEvnt.evnt.Subject, projectId,projEvnt.evnt.DateUTC);
-        var result = await httpTodoistClient.PostAsJsonAsync("tasks", todoistItem, todoistJsonOpts);
-        result.EnsureSuccessStatusCode();
+        log.LogInformation($"Adding event: {projEvnt.evnt.Subject} to Todoist project with project id: {projectId}");
+        
+        if (projEvnt.evnt.DateUTC.Hour == 0)
+        {
+            string pattern = "yyyy-MM-dd";
+            var todoistItem = new TodoistOutGoingItemNoTime(projEvnt.evnt.Subject, projectId, projEvnt.evnt.DateUTC.ToString(pattern));
+            var result = await httpTodoistClient.PostAsJsonAsync("tasks", todoistItem, todoistJsonOpts);
+            result.EnsureSuccessStatusCode();
+        }
+        else
+        {
+            var todoistItem = new TodoistOutGoingItemWithTime(projEvnt.evnt.Subject, projectId, projEvnt.evnt.DateUTC);
+            var result = await httpTodoistClient.PostAsJsonAsync("tasks", todoistItem, todoistJsonOpts);
+            result.EnsureSuccessStatusCode();
+        }
     }
 
     [FunctionName(nameof(Http_ProcessStart))]
@@ -222,5 +233,6 @@ public partial class ProcessOrchestrator
         };
     }
 
-    public record TodoistOutGoingItem(string Content, string ProjectId, DateTime DueDate);
+    public record TodoistOutGoingItemNoTime(string Content, string ProjectId, string DueDate);
+    public record TodoistOutGoingItemWithTime(string Content, string ProjectId, DateTime DueDatetime);
 }
