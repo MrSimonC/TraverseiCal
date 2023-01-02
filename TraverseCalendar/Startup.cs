@@ -12,6 +12,7 @@ public class Startup : FunctionsStartup
     public override void Configure(IFunctionsHostBuilder builder)
     {
         builder.Services.AddHttpClient();
-        builder.Services.AddSingleton<IProwlMessage, ProwlMessage>();
+        string prowlApiKey = Environment.GetEnvironmentVariable("PROWL_API_KEY") ?? throw new NullReferenceException("Missing PROWL_API_KEY");
+        builder.Services.AddSingleton<IProwlMessage>(x => new ProwlMessage(prowlApiKey));
     }
 }

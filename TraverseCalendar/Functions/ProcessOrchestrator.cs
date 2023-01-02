@@ -7,12 +7,14 @@ using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Prowl;
 using Prowl.Models;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.RegularExpressions;
-using Todoist.Net;
-using Todoist.Net.Models;
 using TraverseCalendar.Entities;
 using TraverseCalendar.Helpers;
 using TraverseCalendar.Models;
+using TraverseCalendar.Policies;
 using static TraverseCalendar.Constants;
 
 namespace TraverseCalendar.Functions;
@@ -20,7 +22,9 @@ namespace TraverseCalendar.Functions;
 public partial class ProcessOrchestrator
 {
     private readonly HttpClient httpClient;
-    private readonly ITodoistClient todoistClient;
+    private readonly HttpClient httpTodoistClient;
+    const string todoistApiBaseUrl = "https://api.todoist.com/rest/v2/";
+    private readonly JsonSerializerOptions todoistJsonOpts = new JsonSerializerOptions() { PropertyNameCaseInsensitive = true, PropertyNamingPolicy = new SnakeCasePropertyNamingPolicy()};
     private const string entityInstanceKey = "calendarEntries";
     private readonly IProwlMessage prowlMessage;
     
@@ -29,12 +33,15 @@ public partial class ProcessOrchestrator
     /// </summary>
     private readonly string RaiseApprovalEventUrl = Environment.GetEnvironmentVariable("RAISE_APPROVAL_EVENT_URL") ?? throw new ArgumentNullException(nameof(RaiseApprovalEventUrl));
     private readonly string RegExToReplace = Environment.GetEnvironmentVariable("REGEX_TO_REPLACE") ?? throw new ArgumentNullException(nameof(RegExToReplace));
+    private readonly bool useAppleShortcuts = bool.Parse(Environment.GetEnvironmentVariable("USE_APPLE_SHORTCUTS") ?? "false");
 
     public ProcessOrchestrator(IHttpClientFactory httpClientFactory,
         IProwlMessage prowlMessage)
     {
         httpClient = httpClientFactory.CreateClient();
-        todoistClient = new TodoistClient(Environment.GetEnvironmentVariable("TODOIST_API_KEY") ?? throw new NullReferenceException("Missing TODOIST_API_KEY environment variable"));
+        var todoistAPIKey = Environment.GetEnvironmentVariable("TODOIST_APIKEY") ?? throw new NullReferenceException("Missing TODOIST_APIKEY environment variable");
+        this.httpTodoistClient = new HttpClient() { BaseAddress = new Uri(todoistApiBaseUrl) };
+        this.httpTodoistClient.DefaultRequestHeaders.Authorization =  new AuthenticationHeaderValue("Bearer", todoistAPIKey);
         this.prowlMessage = prowlMessage;
     }
 
@@ -87,7 +94,6 @@ public partial class ProcessOrchestrator
                     continue;
                 }
 
-                var useAppleShortcuts = bool.Parse(Environment.GetEnvironmentVariable("USE_APPLE_SHORTCUTS") ?? "false");
                 if (useAppleShortcuts)
                 {
                     string url = $"shortcuts://run-shortcut?name=Raise Event&input=text&text={context.InstanceId}$$${newEvent.Subject}";
@@ -161,19 +167,29 @@ public partial class ProcessOrchestrator
         ILogger log)
     {
         log.LogInformation($"Getting todoist list id (for list: {projEvnt.projectName})");
-        IEnumerable<Project>? projects = await todoistClient.Projects.GetAsync();
-        ComplexId projectId = projects
+        IEnumerable<Project>? projects = await httpTodoistClient.GetFromJsonAsync<List<Project>>("projects", todoistJsonOpts);
+        projects ??= Array.Empty<Project>();
+        string projectId = projects
             .Where(p => string.Equals(projEvnt.projectName, p.Name, StringComparison.InvariantCultureIgnoreCase))
             .Select(p => p.Id)
             .Single();
         log.LogInformation($"Found projectId: {projectId} for project name: {projEvnt.projectName}.");
 
-        log.LogInformation($"Adding event: {projEvnt.evnt.Subject} to Todoist project with id: {projectId}");
-        var item = new Item(projEvnt.evnt.Subject, projectId)
+        log.LogInformation($"Adding event: {projEvnt.evnt.Subject} to Todoist project with project id: {projectId}");
+        
+        if (projEvnt.evnt.DateUTC.Hour == 0)
         {
-            DueDate = new DueDate(projEvnt.evnt.DateUTC, true)
-        };
-        await todoistClient.Items.AddAsync(item);
+            string pattern = "yyyy-MM-dd";
+            var todoistItem = new TodoistOutGoingItemNoTime(projEvnt.evnt.Subject, projectId, projEvnt.evnt.DateUTC.ToString(pattern));
+            var result = await httpTodoistClient.PostAsJsonAsync("tasks", todoistItem, todoistJsonOpts);
+            result.EnsureSuccessStatusCode();
+        }
+        else
+        {
+            var todoistItem = new TodoistOutGoingItemWithTime(projEvnt.evnt.Subject, projectId, projEvnt.evnt.DateUTC);
+            var result = await httpTodoistClient.PostAsJsonAsync("tasks", todoistItem, todoistJsonOpts);
+            result.EnsureSuccessStatusCode();
+        }
     }
 
     [FunctionName(nameof(Http_ProcessStart))]
@@ -216,4 +232,7 @@ public partial class ProcessOrchestrator
             TodoistList = Environment.GetEnvironmentVariable("TODOIST_LIST") ?? throw new ArgumentNullException("TODOIST_LIST")
         };
     }
+
+    public record TodoistOutGoingItemNoTime(string Content, string ProjectId, string DueDate);
+    public record TodoistOutGoingItemWithTime(string Content, string ProjectId, DateTime DueDatetime);
 }
